@@ -5,7 +5,9 @@
 #include "EventClass.h"
 #include "BlinkClass.h"
 #include "version.h"
-//#include <time.h>
+
+#define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
+
 
 /*------------
 
@@ -42,13 +44,14 @@ int ledCommand(String command);
 // telnet defaults to port 10000
 TCPServer server = TCPServer(10000);
 TCPClient client;
+
 int RxCh;
 int TestCount1, TestCount2;
-bool TestFlag = false;
+bool TestFlag = false, PushFlag = false;
 
 void Test1()
 {
-    TestCount1++;
+  TestCount1++;
 }
 
 void Test2()
@@ -56,6 +59,38 @@ void Test2()
   TestCount2++;
   TestFlag = true;
 }
+
+void TimeSync()
+{
+  Particle.syncTime();
+  Serial.printlnf("timesync");
+}
+
+byte serverIP[] = { 10, 0, 0, 13 }; // PC IP
+
+void PushCommand()
+{
+  PushFlag = true;
+}
+
+void PushData()
+{
+  if (client.connected())
+    client.stop();
+
+
+  if (client.connect(serverIP, 8003))
+  {
+    Serial.println("connected");
+    client.println(Time.timeStr());
+    client.stop();
+  }
+  else
+  {
+    // no connection
+  }
+}
+
 
 void setup() {
 
@@ -78,8 +113,7 @@ void setup() {
   // Wait for something to happen in the serial input
   Serial.begin(9600);
   while(!Serial.available()) Particle.process();
-  while(StartupTimeout++ < 10 || Serial.read() != -1)
-    delay(1000);
+  while(Serial.read() != -1);
 
   // Start TCP server and print the WiFi data
   server.begin();
@@ -95,6 +129,10 @@ void setup() {
 
   E.AddEvent(1000,  Test1);
   E.AddEvent(10000, Test2);
+  E.AddEvent(ONE_DAY_MILLIS, TimeSync);   // Syncronize time once a day
+  E.AddEvent(5000, PushCommand);
+
+  Wire.begin();
 }
 
 // Next we have the loop function, the other essential part of a microcontroller program.
@@ -102,6 +140,7 @@ void setup() {
 // Note: Code that blocks for too long (like more than 5 seconds), can make weird things happen (like dropping the network connection).  The built-in delay function shown below safely interleaves required background activity, so arbitrarily long delays can safely be done if you need them.
 
 void loop() {
+  
 
   if (BlinkTheLed == TRUE) {
 
@@ -126,7 +165,7 @@ void loop() {
     }
   }
 
-  // If a client has connection, then loop all data
+/*  // If a client has connection, then loop all data
   if (client.connected()) {
     // echo all available bytes back to the client
     while (client.available()) {
@@ -138,7 +177,7 @@ void loop() {
     // if no client is yet connected, check for a new connection
     client = server.available();
   }
-
+*/
   LEDStatus = BlinkTheLed;
   // And repeat!
 
@@ -146,6 +185,12 @@ void loop() {
   {
     TestFlag = false;
     Serial.printlnf(Time.timeStr());
+  }
+
+  if (PushFlag)
+  {
+    PushFlag = false;
+    PushData();
   }
 }
 
