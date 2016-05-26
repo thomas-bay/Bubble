@@ -140,7 +140,7 @@ void setup() {
 // Note: Code that blocks for too long (like more than 5 seconds), can make weird things happen (like dropping the network connection).  The built-in delay function shown below safely interleaves required background activity, so arbitrarily long delays can safely be done if you need them.
 
 void loop() {
-  
+
 
   if (BlinkTheLed == TRUE) {
 
