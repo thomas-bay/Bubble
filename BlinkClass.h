@@ -6,6 +6,8 @@
 // Any number of states can be defined to generate advanced
 // blink patterns.
 
+#define DEBUG_BLINK
+
 class Blink
 {
   // enum {INIT=0, LED_ON, LED_OFF} _state;

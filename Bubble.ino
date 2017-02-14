@@ -1,6 +1,8 @@
 // --------------------------------
 // Main file of the Bubble project.
 // --------------------------------
+SYSTEM_THREAD(ENABLED);
+
 #include "Particle.h"
 #include "EventClass.h"
 #include "BlinkClass.h"
@@ -66,7 +68,7 @@ void TimeSync()
   Serial.printlnf("timesync");
 }
 
-byte serverIP[] = { 10, 0, 0, 13 }; // PC IP
+byte serverIP[] = { 10, 0, 0, 15 }; // PC IP
 
 void PushCommand()
 {
@@ -108,12 +110,12 @@ void setup() {
   Particle.variable("LEDStatus", LEDStatus);
   Particle.variable("LoopCounter", LoopCounter);
   Particle.variable("Vers", Version);
-  Particle.variable("Blin||k", BlinkTheLed);
+  Particle.variable("Blink", BlinkTheLed);
 
   // Wait for something to happen in the serial input
   Serial.begin(9600);
-  while(!Serial.available()) Particle.process();
-  while(Serial.read() != -1);
+  //while(!Serial.available()) Particle.process();
+  //while(Serial.read() != -1);
 
   // Start TCP server and print the WiFi data
   server.begin();
@@ -123,14 +125,14 @@ void setup() {
   Serial.println(WiFi.SSID());
 
   // Define the blinking pattern
-  B.AddState(1000,  HIGH);
   B.AddState(4000,  LOW);
+  B.AddState(1000,  HIGH);
   B.Print();
 
   E.AddEvent(1000,  Test1);
   E.AddEvent(10000, Test2);
   E.AddEvent(ONE_DAY_MILLIS, TimeSync);   // Syncronize time once a day
-  E.AddEvent(5000, PushCommand);
+  E.AddEvent(5000, PushCommand);         // <<-- PROBLEM, delay other actions
 
   Wire.begin();
 }
@@ -147,6 +149,7 @@ void loop() {
     B.Action(); // This makes the LED blink without using delay().
     E.Tick();
 
+#if 0
     if ((LoopCounter++ % 5000) == 0) {
 
       Particle.publish("loopevent", "ged");
@@ -163,6 +166,7 @@ void loop() {
         Serial.write(Serial.read());
       }
     }
+#endif
   }
 
 /*  // If a client has connection, then loop all data

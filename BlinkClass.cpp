@@ -45,6 +45,9 @@ void Blink::Action()
   if (now > _nexttime)
   {
     _nexttime = now + Per[_state_num];
+    #ifdef DEBUG_BLINK
+    Serial.printlnf(" now = %i, State = %i, next = %i, Level = %s", now, _state_num, _nexttime, (Lev[_state_num] ? "HIGH" : "LOW"));
+    #endif
     digitalWrite(_port, Lev[_state_num]);
     _state_num = (_state_num + 1) % _num_periods;
   }
