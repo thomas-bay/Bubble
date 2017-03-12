@@ -34,9 +34,9 @@ class Version V;
 class Event E;
 
 #ifndef USE_SWD_JTAG
-  class Blink B(D7);
+//  class Blink B(D7);
 #else
-  class Blink B(D2);
+//  class Blink B(D2);
 #endif
 
 // The setup function is a standard part of any microcontroller program.
@@ -44,8 +44,6 @@ class Event E;
 int ledCommand(String command);
 
 // telnet defaults to port 10000
-TCPServer server = TCPServer(10000);
-TCPClient client;
 
 int RxCh;
 int TestCount1, TestCount2;
@@ -68,31 +66,136 @@ void TimeSync()
   Serial.printlnf("timesync");
 }
 
-byte serverIP[] = { 10, 0, 0, 15 }; // PC IP
+// Network setup
+IPAddress myAddress(10,0,0,5); // Photon IP
+IPAddress subnetMask(255,255,255,0);
+IPAddress gateway(10,0,0,1);
+IPAddress dns(10,0,0,1);
+#define SERVERPORT 8003
+TCPServer server = TCPServer(SERVERPORT);
+TCPClient client;
+
 
 void PushCommand()
 {
   PushFlag = true;
 }
 
-void PushData()
+#define MAX_RX 50
+unsigned char Incoming[MAX_RX];
+
+enum {OK, NOK, OUTTOKENS} OutTokens;
+const String OutgoingTokens[OUTTOKENS] = {"OK!", "NOK!"};
+
+enum {ON, OFF, SET_TIME, INTOKENS} InTokens;
+const String IncomingTokens[INTOKENS] = {"0#", "1#", "2#"};
+
+// HArdware resources
+#define POWERCTRL_IO D7
+#define SIGNALSEL0_IO D5    // Support for four signal inputs
+#define SIGNALSEL1_IO D6
+#define MAX_SIGNALS   4
+
+// Frame definition
+#define CMD   0
+#define SPACER  1
+#define SIGNAL 2
+
+void PowerControlSignal(int Level)
 {
-  if (client.connected())
-    client.stop();
+  pinMode(POWERCTRL_IO, OUTPUT);
+  digitalWrite(POWERCTRL_IO, Level);
+}
 
-
-  if (client.connect(serverIP, 8003))
+void SignalSelect(int signal)
+{
+  pinMode(SIGNALSEL0_IO, OUTPUT);
+  pinMode(SIGNALSEL1_IO, OUTPUT);
+  switch(signal)
   {
-    Serial.println("connected");
-    client.println(Time.timeStr());
-    client.stop();
-  }
-  else
-  {
-    // no connection
+    case 0:
+      digitalWrite(SIGNALSEL0_IO, 0);
+      digitalWrite(SIGNALSEL1_IO, 0);
+      break;
+    case 1:
+    digitalWrite(SIGNALSEL0_IO, 1);
+    digitalWrite(SIGNALSEL1_IO, 0);
+      break;
+    case 2:
+      digitalWrite(SIGNALSEL0_IO, 0);
+      digitalWrite(SIGNALSEL1_IO, 1);
+      break;
+    default:
+      digitalWrite(SIGNALSEL0_IO, 1);
+      digitalWrite(SIGNALSEL1_IO, 1);
   }
 }
 
+void CheckForIncomingData()
+{
+    if (client.connected())
+    {
+      Serial.println("connected");
+      // echo all available bytes back to the client
+      while (client.available())
+      {
+        int num = client.read(Incoming, MAX_RX);
+        int result = NOK;
+        unsigned int Signal;
+        {
+        if (num>0)
+          if (Incoming[SPACER] == '#')
+          {
+            switch(Incoming[CMD])
+            {
+              case '0':
+                result = OK;
+                PowerControlSignal(0);
+                Serial.println("OFF");
+                break;
+              case '1':
+                {
+                result = OK;
+                Signal = Incoming[SIGNAL] - '0';
+                if(Signal < MAX_SIGNALS)
+                {
+                    PowerControlSignal(1);  // Turn on power
+                    SignalSelect(Signal);
+                    Serial.print("ON:");
+                    Serial.println(Incoming[SIGNAL]);
+                }
+                else
+                  result = NOK;
+                }
+                break;
+              case '2':
+                Serial.println("SET_TIME");
+                break;
+              case '3':
+                Serial.println("RESET_TIME");
+                break;
+            }
+          }
+        }
+        server.write(OutgoingTokens[result]);
+      }
+      client.stop();
+      Serial.println("connection closed");
+    }
+    else
+    {
+      // if no client is yet connected, check for a new connection
+      client = server.available();
+    }
+}
+
+void PrepForStaticIP()
+{
+  WiFi.setStaticIP(myAddress, subnetMask, gateway, dns);
+
+  // now let's use the configured IP
+  WiFi.useStaticIP();
+}
 
 void setup() {
 
@@ -103,11 +206,11 @@ void setup() {
 
   // Setup the version/compilation date
   Version = V.getVersionAndTimeDate().c_str();
-  Time.zone(2);   // Set timezone to UTC+1 (and summertime)
+  Time.zone(1);   // Set timezone to UTC+1 (and summertime)
 
   // Publish the variables and functions
   Particle.function("Led", ledCommand);
-  Particle.variable("LEDStatus", LEDStatus);
+//  Particle.variable("LEDStatus_", LEDStatus);
   Particle.variable("LoopCounter", LoopCounter);
   Particle.variable("Vers", Version);
   Particle.variable("Blink", BlinkTheLed);
@@ -118,21 +221,23 @@ void setup() {
   //while(Serial.read() != -1);
 
   // Start TCP server and print the WiFi data
+  PrepForStaticIP();
   server.begin();
+  client.stop();
   Serial.println(WiFi.localIP());
   Serial.println(WiFi.subnetMask());
   Serial.println(WiFi.gatewayIP());
   Serial.println(WiFi.SSID());
 
   // Define the blinking pattern
-  B.AddState(4000,  LOW);
-  B.AddState(1000,  HIGH);
-  B.Print();
+  //B.AddState(4000,  LOW);
+  //B.AddState(1000,  HIGH);
+  //B.Print();
 
   E.AddEvent(1000,  Test1);
   E.AddEvent(10000, Test2);
   E.AddEvent(ONE_DAY_MILLIS, TimeSync);   // Syncronize time once a day
-  E.AddEvent(5000, PushCommand);         // <<-- PROBLEM, delay other actions
+  E.AddEvent(500, PushCommand);         // <<-- PROBLEM, delay other actions
 
   Wire.begin();
 }
@@ -146,43 +251,12 @@ void loop() {
 
   if (BlinkTheLed == TRUE) {
 
-    B.Action(); // This makes the LED blink without using delay().
+//    B.Action(); // This makes the LED blink without using delay().
     E.Tick();
 
-#if 0
-    if ((LoopCounter++ % 5000) == 0) {
-
-      Particle.publish("loopevent", "ged");
-      Serial.printlnf("Loop = %i", LoopCounter);
-      Serial.printlnf("Blink = %i", B.getCalls());
-      Serial.printlnf("TestCount1 = %i", TestCount1);
-      Serial.printlnf("TestCount2 = %i", TestCount2);
-
-      // If more than 15 chars have been received then
-      // echo them.
-
-      // Loop the received data on serial back to terminal.
-      while (Serial.available()) {
-        Serial.write(Serial.read());
-      }
-    }
-#endif
   }
 
-/*  // If a client has connection, then loop all data
-  if (client.connected()) {
-    // echo all available bytes back to the client
-    while (client.available()) {
-      RxCh = client.read();
-      server.write(RxCh);
-      Serial.write(RxCh);
-    }
-  } else {
-    // if no client is yet connected, check for a new connection
-    client = server.available();
-  }
-*/
-  LEDStatus = BlinkTheLed;
+  //  LEDStatus = BlinkTheLed;
   // And repeat!
 
   if (TestFlag)
@@ -194,7 +268,7 @@ void loop() {
   if (PushFlag)
   {
     PushFlag = false;
-    PushData();
+    CheckForIncomingData();
   }
 }
 

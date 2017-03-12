@@ -3,7 +3,7 @@
 Version::Version ()
 {
   _file = __FILE__;
-  _version = "Bubble V1.01";
+  _version = "Bubble V1.02";
   _date = __DATE__;
   _time = __TIME__;
 }
