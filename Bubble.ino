@@ -8,6 +8,7 @@ SYSTEM_THREAD(ENABLED);
 #include "BlinkClass.h"
 #include "version.h"
 
+
 #define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
 
 
@@ -48,6 +49,22 @@ int ledCommand(String command);
 int RxCh;
 int TestCount1, TestCount2;
 bool TestFlag = false, PushFlag = false;
+bool CheckTimeFlag = false;
+time_t StartTime, StopTime;
+
+enum _TimeCheckState
+{
+  INACTIVE,
+  WAIT_FOR_START,
+  WAIT_FOR_STOP
+}
+TimeCheckState = INACTIVE;
+
+
+void CheckTime()
+{
+  CheckTimeFlag = true;
+}
 
 void Test1()
 {
@@ -91,15 +108,20 @@ enum {ON, OFF, SET_TIME, INTOKENS} InTokens;
 const String IncomingTokens[INTOKENS] = {"0#", "1#", "2#"};
 
 // HArdware resources
-#define POWERCTRL_IO D7
+#define POWERCTRL_IO  D7
 #define SIGNALSEL0_IO D5    // Support for four signal inputs
 #define SIGNALSEL1_IO D6
 #define MAX_SIGNALS   4
 
 // Frame definition
-#define CMD   0
-#define SPACER  1
-#define SIGNAL 2
+#define CMD       0
+#define SPACER    1
+#define SIGNAL    2
+#define STARTTIME 2
+#define SPACER2   7
+#define STOPTIME  8
+#define COLON1    4
+#define COLON2    10
 
 void PowerControlSignal(int Level)
 {
@@ -113,15 +135,15 @@ void SignalSelect(int signal)
   pinMode(SIGNALSEL1_IO, OUTPUT);
   switch(signal)
   {
-    case 0:
+    case 0: /* Radio */
       digitalWrite(SIGNALSEL0_IO, 0);
       digitalWrite(SIGNALSEL1_IO, 0);
       break;
-    case 1:
+    case 1: /* Aux */
     digitalWrite(SIGNALSEL0_IO, 1);
     digitalWrite(SIGNALSEL1_IO, 0);
       break;
-    case 2:
+    case 2: /* TV */
       digitalWrite(SIGNALSEL0_IO, 0);
       digitalWrite(SIGNALSEL1_IO, 1);
       break;
@@ -130,6 +152,41 @@ void SignalSelect(int signal)
       digitalWrite(SIGNALSEL1_IO, 1);
   }
 }
+
+bool isDigit(unsigned char c)
+{
+  return ((c >= '0') && (c<='9'));
+}
+
+bool isFirstHour(unsigned char c)  // First hour digit
+{
+  return ((c >= '0') && (c<='2'));
+}
+
+bool isFirstMinute(unsigned char c)  // First minute digit
+{
+  return ((c >= '0') && (c<='5'));
+}
+
+bool CheckFrame(unsigned char *frame)
+{
+  if (frame[SPACER] == '#'
+  && frame[SPACER2] == '#'
+  && frame[COLON2] == ':'
+  && frame[COLON2] == ':'
+  && isFirstHour(frame[STARTTIME])      // 0-2
+  && isDigit(frame[STARTTIME+1])        // 0-9
+  && isFirstMinute(frame[STARTTIME+3])  // 0-5
+  && isDigit(frame[STARTTIME+4])        // 0-9
+  && isFirstHour(frame[STOPTIME])
+  && isDigit(frame[STOPTIME+1])
+  && isFirstMinute(frame[STOPTIME+3])
+  && isDigit(frame[STOPTIME+4]))
+    return true;
+  else
+    return false;
+}
+
 
 void CheckForIncomingData()
 {
@@ -170,6 +227,59 @@ void CheckForIncomingData()
                 break;
               case '2':
                 Serial.println("SET_TIME");
+                result = NOK;
+
+                // Verify the received format
+
+                if (CheckFrame(Incoming) && (num == 13))
+                {
+                  result = OK;
+
+                  // Calculate the number of milliseconds until start and stop.
+                  int StartHour = 10*(Incoming[STARTTIME] -'0') + (Incoming[STARTTIME+1] - '0');
+                  int StartMinute = 10*(Incoming[STARTTIME+3] -'0') + (Incoming[STARTTIME+4] - '0');
+                  int StopHour = 10*(Incoming[STOPTIME] -'0') + (Incoming[STOPTIME+1] - '0');
+                  int StopMinute = 10*(Incoming[STOPTIME+3] -'0') + (Incoming[STOPTIME+4] - '0');
+
+                  //////////////////////////////////////////////////////
+                  int h = Time.hour();
+                  int m = Time.minute();
+                  int s = Time.second();
+
+
+                  //time_t now;
+                  //now = time(NULL);
+                  struct tm beg;  // Now
+                  beg.tm_mday = 0;
+                  beg.tm_hour = Time.hour();
+                  beg.tm_min = Time.minute();
+                  beg.tm_sec = Time.second();
+
+                  struct tm start = beg, stop = beg;
+
+                  start.tm_min += StartMinute;
+                  if (start.tm_min > 59)
+                    start.tm_hour++;
+                  start.tm_hour += StartHour;
+                  if (start.tm_hour > 23)
+                    start.tm_mday++;
+
+                  stop.tm_min += StopMinute;
+                  if (stop.tm_min > 59)
+                    stop.tm_hour++;
+                  stop.tm_hour += StopHour;
+                  if (stop.tm_hour > 23)
+                    stop.tm_mday++;
+                  // Add start time.
+
+
+                  // Set stop time Event
+                  TimeCheckState = WAIT_FOR_START;
+                  StartTime = Time.now() + 38100;
+                  StopTime = Time.now() + 38400;
+                  //////////////////////////////////////////////////////
+
+                }
                 break;
               case '3':
                 Serial.println("RESET_TIME");
@@ -189,6 +299,28 @@ void CheckForIncomingData()
     }
 }
 
+void CheckStereoOnOff()
+{
+  if (TimeCheckState == WAIT_FOR_START)
+  {
+    if (Time.now() > StartTime)
+    {
+      PowerControlSignal(1);  // Turn on power
+      TimeCheckState = WAIT_FOR_STOP;
+
+    }
+  }
+  else if (TimeCheckState == WAIT_FOR_STOP)
+  {
+    if (Time.now() > StopTime)
+    {
+      PowerControlSignal(0);  // Turn on power
+      TimeCheckState = INACTIVE;
+
+    }
+  }
+}
+
 void PrepForStaticIP()
 {
   WiFi.setStaticIP(myAddress, subnetMask, gateway, dns);
@@ -196,6 +328,7 @@ void PrepForStaticIP()
   // now let's use the configured IP
   WiFi.useStaticIP();
 }
+
 
 void setup() {
 
@@ -238,6 +371,8 @@ void setup() {
   E.AddEvent(10000, Test2);
   E.AddEvent(ONE_DAY_MILLIS, TimeSync);   // Syncronize time once a day
   E.AddEvent(500, PushCommand);         // <<-- PROBLEM, delay other actions
+  E.AddEvent(1000, CheckTime);         // <<-- PROBLEM, delay other actions
+
 
   Wire.begin();
 }
@@ -269,6 +404,12 @@ void loop() {
   {
     PushFlag = false;
     CheckForIncomingData();
+  }
+
+  if (CheckTimeFlag)
+  {
+    CheckTimeFlag = false;
+    CheckStereoOnOff();
   }
 }
 
