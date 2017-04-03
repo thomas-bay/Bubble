@@ -1,12 +1,14 @@
 // --------------------------------
 // Main file of the Bubble project.
 // --------------------------------
-SYSTEM_THREAD(ENABLED);
 
 #include "Particle.h"
 #include "EventClass.h"
 #include "BlinkClass.h"
 #include "version.h"
+#include <time.h>
+
+SYSTEM_THREAD(ENABLED);
 
 
 #define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
@@ -187,6 +189,17 @@ bool CheckFrame(unsigned char *frame)
     return false;
 }
 
+/*
+-- Returns true if summertime is active.
+-- NOTE: Only approximate.
+*/
+bool Summertime()
+{
+  if (Time.month() > 3 && Time.month() < 11)
+    return true;
+  else
+    return false;
+}
 
 void CheckForIncomingData()
 {
@@ -233,52 +246,63 @@ void CheckForIncomingData()
 
                 if (CheckFrame(Incoming) && (num == 13))
                 {
+                  bool pastMidnight = false;
+
                   result = OK;
 
                   // Calculate the number of milliseconds until start and stop.
                   int StartHour = 10*(Incoming[STARTTIME] -'0') + (Incoming[STARTTIME+1] - '0');
                   int StartMinute = 10*(Incoming[STARTTIME+3] -'0') + (Incoming[STARTTIME+4] - '0');
+                  int StartSecond = 0;
                   int StopHour = 10*(Incoming[STOPTIME] -'0') + (Incoming[STOPTIME+1] - '0');
                   int StopMinute = 10*(Incoming[STOPTIME+3] -'0') + (Incoming[STOPTIME+4] - '0');
+                  int StopSecond = 0;  // Set seconds is always 0
 
                   //////////////////////////////////////////////////////
                   int h = Time.hour();
                   int m = Time.minute();
                   int s = Time.second();
 
+                  int now = Time.now();
 
-                  //time_t now;
-                  //now = time(NULL);
-                  struct tm beg;  // Now
-                  beg.tm_mday = 0;
-                  beg.tm_hour = Time.hour();
-                  beg.tm_min = Time.minute();
-                  beg.tm_sec = Time.second();
+                  int SecondsToStart = 0;
+                  int SecondsToStop = 0;
+                  int SecondsMidnightToStart = 0;
+                  int SecondsMidnightToStop = 0;
+                  int SecondsToMidnight = 0;
 
-                  struct tm start = beg, stop = beg;
+                  if ((StartHour < h) || ((StartHour == h) && (StartMinute < m)))
+                  {
+                    // Set time is past midnight
+                    SecondsToMidnight = (24-(h+1))*60*60 + (60-(m+1))*60 + (60-s);
+                    SecondsMidnightToStart = StartHour*60*60 + StartMinute*60;
+                    SecondsMidnightToStop =  StopHour*60*60 + StopMinute*60;
+                    Serial.printlnf("Seconds to midnight: %d", SecondsToMidnight);
+                    Serial.printlnf("Seconds to start,stop from midnight: %d,%d", SecondsMidnightToStart, SecondsMidnightToStop);
 
-                  start.tm_min += StartMinute;
-                  if (start.tm_min > 59)
-                    start.tm_hour++;
-                  start.tm_hour += StartHour;
-                  if (start.tm_hour > 23)
-                    start.tm_mday++;
+                    StartTime = now + SecondsToMidnight + SecondsMidnightToStart;
+                    StopTime = now + SecondsToMidnight + SecondsMidnightToStop;
+                  }
+                  else
+                  {
+                    // Set time is before midnight
+                    SecondsToStart = (StartHour-h)*60*60 + (StartMinute-m)*60 + (StartSecond-s);
+                    SecondsToStop =  (StopHour-h)*60*60 + (StopMinute-m)*60 + (StopSecond-s);
+                    Serial.printlnf("Seconds to start,stop: %d,%d", SecondsToStart, SecondsToStop);
 
-                  stop.tm_min += StopMinute;
-                  if (stop.tm_min > 59)
-                    stop.tm_hour++;
-                  stop.tm_hour += StopHour;
-                  if (stop.tm_hour > 23)
-                    stop.tm_mday++;
-                  // Add start time.
+                    StartTime = now + SecondsToStart;
+                    StopTime = now + SecondsToStop;
+                  }
 
+                  // Correct for summertime.
+                  if (Summertime())
+                  {
+                    StartTime -= 60*60;
+                    StopTime -= 60*60;
+                  }
 
-                  // Set stop time Event
+                  // Set start and stop time Event
                   TimeCheckState = WAIT_FOR_START;
-                  StartTime = Time.now() + 38100;
-                  StopTime = Time.now() + 38400;
-                  //////////////////////////////////////////////////////
-
                 }
                 break;
               case '3':
