@@ -106,8 +106,8 @@ unsigned char Incoming[MAX_RX];
 enum {OK, NOK, OUTTOKENS} OutTokens;
 const String OutgoingTokens[OUTTOKENS] = {"OK!", "NOK!"};
 
-enum {ON, OFF, SET_TIME, INTOKENS} InTokens;
-const String IncomingTokens[INTOKENS] = {"0#", "1#", "2#"};
+//enum {ON, OFF, SET_TIME, INTOKENS} InTokens;
+//const String IncomingTokens[INTOKENS] = {"0#", "1#", "2#"};
 
 // HArdware resources
 #define POWERCTRL_IO  D7
@@ -213,8 +213,7 @@ void CheckForIncomingData()
         int result = NOK;
         unsigned int Signal;
         {
-        if (num>0)
-          if (Incoming[SPACER] == '#')
+          if (num>0 && Incoming[SPACER] == '#')
           {
             switch(Incoming[CMD])
             {
@@ -225,17 +224,17 @@ void CheckForIncomingData()
                 break;
               case '1':
                 {
-                result = OK;
-                Signal = Incoming[SIGNAL] - '0';
-                if(Signal < MAX_SIGNALS)
-                {
-                    PowerControlSignal(1);  // Turn on power
-                    SignalSelect(Signal);
-                    Serial.print("ON:");
-                    Serial.println(Incoming[SIGNAL]);
-                }
-                else
-                  result = NOK;
+                  result = OK;
+                  Signal = Incoming[SIGNAL] - '0';
+                  if(Signal < MAX_SIGNALS)
+                  {
+                      PowerControlSignal(1);  // Turn on power
+                      SignalSelect(Signal);
+                      Serial.print("ON:");
+                      Serial.println(Incoming[SIGNAL]);
+                  }
+                  else
+                    result = NOK;
                 }
                 break;
               case '2':
@@ -307,6 +306,8 @@ void CheckForIncomingData()
                 break;
               case '3':
                 Serial.println("RESET_TIME");
+                TimeCheckState = INACTIVE;
+                result = OK;
                 break;
             }
           }
